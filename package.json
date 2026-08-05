@@ -1,5 +1,5 @@
 {
-  "name": "pi-ollama-web-search",
+  "name": "ollama-web-search",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -11,9 +11,21 @@
       "./index.ts"
     ]
   },
+  "scripts": {
+    "lint": "biome check . --write",
+    "lint:check": "biome ci .",
+    "check": "tsc --noEmit",
+    "audit": "npm audit --audit-level=high",
+    "audit:fix": "npm audit fix",
+    "build": "npm run check && npm run lint"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.7",
+    "typescript": "^5.7.0"
+  },
   "peerDependencies": {
-    "@earendil-works/pi-ai": "*",
-    "@earendil-works/pi-coding-agent": "*",
-    "@earendil-works/pi-tui": "*"
+    "@earendil-works/pi-ai": "^0.80.0",
+    "@earendil-works/pi-coding-agent": "^0.83.0",
+    "@earendil-works/pi-tui": "^0.80.0"
   }
 }
