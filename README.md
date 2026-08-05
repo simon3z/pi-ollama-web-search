@@ -1,5 +1,10 @@
 # pi-ollama-web-search
 
+[![Version](https://img.shields.io/badge/version-0.1.0-blue?style=flat&colorA=333333)](https://github.com/simon3z/pi-ollama-web-search/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-6FB2F7?style=flat&colorA=333333)](LICENSE)
+[![TypeScript](https://img.shields.io/badge/TypeScript-007AB8?style=flat&logo=typescript&logoColor=white&colorA=333333)](https://www.typescriptlang.org/)
+[![pi coding agent extension](https://img.shields.io/badge/pi-extension-orange?style=flat&colorA=333333)](https://pi.dev)
+
 A [pi coding agent](https://pi.dev) extension that adds web search and web fetch capabilities via Ollama's hosted API.
 
 ## Why This Project
