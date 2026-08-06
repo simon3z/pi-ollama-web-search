@@ -1,4 +1,4 @@
-# pi-ollama-web-search
+# PI Assistant Ollama Web Search Extension
 
 [![Version](https://img.shields.io/badge/version-0.1.0-blue?style=flat&colorA=333333)](https://github.com/simon3z/pi-ollama-web-search/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-6FB2F7?style=flat&colorA=333333)](LICENSE)
