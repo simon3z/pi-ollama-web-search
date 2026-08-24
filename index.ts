@@ -17,63 +17,63 @@ import {
   type ExtensionAPI,
   getAgentDir,
 } from "@earendil-works/pi-coding-agent";
-import { Container, Text } from "@earendil-works/pi-tui";
+import { Text } from "@earendil-works/pi-tui";
 
 const API_BASE = process.env.OLLAMA_API_BASE ?? "https://ollama.com/api";
 const CONFIG_FILE = "ollama-web-search.json";
 const DEFAULT_MAX_RESULTS = 3;
 
+// ─── API key resolution ────────────────────────────────────────────────────
+
 let cachedApiKey: string | undefined;
 
-function resolveApiKey(_ctx: {
-  cwd: string;
-  mode: string;
-}): string | undefined {
+function resolveApiKey(): string | undefined {
   if (cachedApiKey !== undefined) return cachedApiKey;
 
-  const agentDir = getAgentDir();
   const envKey = process.env.OLLAMA_API_KEY;
+  const agentDir = getAgentDir();
 
-  if (!agentDir) return envKey;
-  const configPath = join(agentDir, CONFIG_FILE);
-  if (existsSync(configPath)) {
-    try {
-      const raw = readFileSync(configPath, "utf-8");
-      const config = JSON.parse(raw) as { apiKey?: string };
-      if (config?.apiKey !== undefined) {
-        cachedApiKey = config.apiKey;
-        return config.apiKey;
+  if (agentDir) {
+    const configPath = join(agentDir, CONFIG_FILE);
+    if (existsSync(configPath)) {
+      try {
+        const raw = readFileSync(configPath, "utf-8");
+        const config = JSON.parse(raw) as { apiKey?: string };
+        if (config?.apiKey !== undefined) {
+          cachedApiKey = config.apiKey;
+          return config.apiKey;
+        }
+      } catch (e) {
+        console.warn(`[ollama-web-search] failed to parse config:`, e);
       }
-    } catch (e) {
-      console.warn(`[ollama-web-search] failed to parse config:`, e);
     }
   }
-
   cachedApiKey = envKey;
   return envKey;
 }
 
-function parseResultContent(result: {
-  content?: Array<{ type: string; text?: string }>;
-}): { raw: string; parsed: unknown } | null {
-  const textItem = result.content?.find((item) => item.type === "text");
-  if (!textItem || typeof textItem.text !== "string") return null;
+// ─── HTTP layer ─────────────────────────────────────────────────────────────
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(textItem.text);
-  } catch {
-    return { raw: textItem.text, parsed: undefined };
-  }
-  return { raw: textItem.text, parsed };
+interface SearchResult {
+  title?: string;
+  url: string;
+  content: string;
 }
 
-async function fetchOllama(
+interface FetchDetails {
+  url?: string;
+  title?: string;
+  content?: string;
+  links?: string[];
+  raw?: string;
+}
+
+async function fetchOllamaRaw(
   endpoint: string,
   body: Record<string, unknown>,
-  apiKey: string,
   signal: AbortSignal | undefined,
-): Promise<Response> {
+): Promise<string> {
+  const apiKey = resolveApiKey() ?? "";
   const url = `${API_BASE}/${endpoint}`;
   const res = await fetch(url, {
     method: "POST",
@@ -90,11 +90,42 @@ async function fetchOllama(
       `${endpoint} failed (${String(res.status)}) at ${url}: ${errText}`,
     );
   }
-  return res;
+  return res.text();
 }
 
+// ─── Tool: ollama_web_search ───────────────────────────────────────────────
+
+const searchParams = Type.Object({
+  query: Type.String({ description: "The search query to run" }),
+  maxResults: Type.Optional(
+    Type.Number({
+      description: `Maximum number of results to return (default: ${String(
+        DEFAULT_MAX_RESULTS,
+      )})`,
+      minimum: 1,
+      maximum: 10,
+    }),
+  ),
+});
+
+interface SearchDetails {
+  results?: SearchResult[];
+  raw?: string;
+}
+
+// ─── Tool: ollama_web_fetch ─────────────────────────────────────────────────
+
+const fetchParams = Type.Object({
+  url: Type.String({
+    description: "The absolute URL to fetch",
+    format: "uri",
+  }),
+});
+
+// ─── Extension registration ────────────────────────────────────────────────
+
 export default function (pi: ExtensionAPI) {
-  pi.registerTool({
+  pi.registerTool<typeof searchParams, SearchDetails, never>({
     name: "ollama_web_search",
     label: "Ollama Web Search",
     description: "Search the web using Ollama's hosted search API.",
@@ -104,43 +135,29 @@ export default function (pi: ExtensionAPI) {
       "Use ollama_web_search when the user asks a question requiring current or factual information.",
       "Pass a clear, concise search query.",
     ],
-    parameters: Type.Object({
-      query: Type.String({ description: "The search query to run" }),
-      maxResults: Type.Optional(
-        Type.Number({
-          description: `Maximum number of results to return (default: ${String(DEFAULT_MAX_RESULTS)})`,
-          minimum: 1,
-          maximum: 10,
-        }),
-      ),
-    }),
+    parameters: searchParams,
 
-    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-      const apiKey = resolveApiKey(ctx) ?? "";
-      const res = await fetchOllama(
+    async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
+      const maxResults = params.maxResults ?? DEFAULT_MAX_RESULTS;
+      const raw = await fetchOllamaRaw(
         "web_search",
-        {
-          query: params.query,
-          max_results: params.maxResults ?? DEFAULT_MAX_RESULTS,
-        },
-        apiKey,
+        { query: params.query, max_results: maxResults },
         signal,
       );
-      const fetchResponse = (await res.json()) as {
-        results: Array<{ title?: string; url: string; content: string }>;
-      };
+      const text = raw.trim();
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        return {
+          content: [{ type: "text", text }],
+          details: { raw: text },
+        };
+      }
+      const results = (parsed as { results?: SearchResult[] }).results ?? [];
       return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify(fetchResponse.results, null, 2),
-          },
-        ],
-        details: {
-          query: params.query,
-          maxResults: params.maxResults ?? DEFAULT_MAX_RESULTS,
-          resultCount: fetchResponse.results.length,
-        },
+        content: [{ type: "text", text: JSON.stringify(results, null, 2) }],
+        details: { results },
       };
     },
 
@@ -148,23 +165,18 @@ export default function (pi: ExtensionAPI) {
       const maxResults =
         args.maxResults !== undefined ? args.maxResults : DEFAULT_MAX_RESULTS;
       return new Text(
-        `${theme.fg("toolTitle", theme.bold("search"))} "${args.query ?? "..."}" (${String(maxResults)} results)`,
+        `${theme.fg("toolTitle", theme.bold("search"))} "${
+          args.query ?? "..."
+        }" (${String(maxResults)} results)`,
       );
     },
 
     renderResult(result, { expanded }, _theme, _ctx) {
-      const data = parseResultContent(result);
-      if (!data) return new Container();
-      const parsed = data.parsed;
-      if (typeof parsed === "undefined") {
-        return new Text(`Raw response:\n${data.raw}`, 0, 0);
+      const details = result.details as SearchDetails;
+      if (details.raw !== undefined) {
+        return new Text(`Raw response:\n${details.raw}`, 0, 0);
       }
-
-      const results = parsed as Array<{
-        title?: string;
-        url: string;
-        content: string;
-      }>;
+      const results = details.results ?? [];
       const count = results.length;
 
       if (!expanded) {
@@ -184,7 +196,7 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  pi.registerTool({
+  pi.registerTool<typeof fetchParams, FetchDetails, never>({
     name: "ollama_web_fetch",
     label: "Ollama Web Fetch",
     description:
@@ -194,77 +206,70 @@ export default function (pi: ExtensionAPI) {
       "Use ollama_web_fetch when the user provides a URL and wants its content.",
       "Only pass absolute URLs.",
     ],
-    parameters: Type.Object({
-      url: Type.String({
-        description: "The absolute URL to fetch",
-        format: "uri",
-      }),
-    }),
+    parameters: fetchParams,
 
-    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-      // Validate URL locally so we give a clear error before hitting the API
+    async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
       const validatedUrl = new URL(params.url).href;
-      const apiKey = resolveApiKey(ctx) ?? "";
-      const res = await fetchOllama(
+      const raw = await fetchOllamaRaw(
         "web_fetch",
         { url: validatedUrl },
-        apiKey,
         signal,
       );
-      const data = (await res.json()) as {
-        title?: string;
-        content?: string;
-        links?: string[];
-      };
+      const text = raw.trim();
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        return {
+          content: [{ type: "text", text }],
+          details: { raw: text },
+        };
+      }
+      const data = parsed as Omit<FetchDetails, "raw">;
       return {
         content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
-        details: { url: params.url },
+        details: { ...data, url: validatedUrl },
       };
     },
 
     renderCall(args, theme, _ctx) {
-      const url = args.url as string;
-      return new Text(`${theme.fg("toolTitle", theme.bold("fetch"))} ${url}`);
+      return new Text(
+        `${theme.fg("toolTitle", theme.bold("fetch"))} ${args.url}`,
+      );
     },
 
     renderResult(result, { expanded }, _theme, _ctx) {
-      const data = parseResultContent(result);
-      if (!data) return new Container();
-      const parsed = data.parsed;
-      if (typeof parsed === "undefined") {
-        return new Text(`Raw response:\n${data.raw}`, 0, 0);
+      if (result.details.raw !== undefined) {
+        return new Text(`Raw response:\n${result.details.raw}`, 0, 0);
       }
-
-      const content = parsed as {
-        title?: string;
-        content?: string;
-        links?: string[];
-      };
+      const details = result.details as FetchDetails;
+      const { title, links } = details;
+      const contentStr = details.content ?? "";
+      const url = details.url ?? "unknown";
 
       if (!expanded) {
-        const snippet = (content.content ?? "").slice(0, 200);
-        const title = content.title ? ` — ${content.title}` : "";
+        const snippet = contentStr.slice(0, 200);
         return new Text(
-          `↳${title}\n${snippet}${(content.content ?? "").length > 200 ? "..." : ""}`,
+          `↳${title ? ` — ${title}` : ""}\n${snippet}${
+            contentStr.length > 200 ? "..." : ""
+          }`,
           0,
           0,
         );
       }
 
-      const detailsUrl = (result as { details?: { url: string } }).details?.url;
-      const contentStr = content.content ?? "";
       const parts = [
-        content.title && `Title: ${content.title}`,
-        `URL: ${detailsUrl || "unknown"}`,
+        title && `Title: ${title}`,
+        `URL: ${url}`,
         `Content: ${contentStr}`,
-        content.links && `Links: ${content.links.join(", ")}`,
+        links && `Links: ${links.join(", ")}`,
       ].filter(Boolean);
       return new Text(`\n${parts.join("\n\n")}`, 0, 0);
     },
   });
 
   pi.on("session_start", (_event, ctx) => {
-    if (!resolveApiKey(ctx)) {
+    if (!resolveApiKey()) {
       ctx.ui.notify(
         "⚠️ No Ollama API key found. Create ~/.pi/agent/ollama-web-search.json or set OLLAMA_API_KEY.",
         "warning",
