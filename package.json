@@ -20,8 +20,8 @@
     "build": "npm run check && npm run lint"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.7",
-    "typescript": "^5.7.0"
+    "@biomejs/biome": "^2.5.12",
+    "typescript": "^7.0.2"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "^0.85.1",
