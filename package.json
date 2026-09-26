@@ -20,16 +20,14 @@
     "build": "npm run check && npm run lint"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.12",
+    "@biomejs/biome": "^2.5.14",
+    "@earendil-works/pi-ai": "^0.87.1",
+    "@earendil-works/pi-coding-agent": "^0.87.1",
+    "@earendil-works/pi-tui": "^0.87.1",
     "typescript": "^7.0.2"
   },
-  "peerDependencies": {
-    "@earendil-works/pi-ai": "^0.85.1",
-    "@earendil-works/pi-coding-agent": "^0.85.1",
-    "@earendil-works/pi-tui": "^0.85.1"
-  },
   "allowScripts": {
-    "@google/genai@1.52.0": true,
-    "protobufjs@7.6.5": true
+    "@google/genai@2.21.0": true,
+    "protobufjs@7.6.6": true
   }
 }
